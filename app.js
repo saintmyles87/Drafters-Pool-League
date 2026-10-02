@@ -11,7 +11,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-// Global State
+// Global App State
 const ALL_PLAYERS = ["Myles", "Danny", "James", "Mike", "Craig", "Franny"];
 let currentTournament = null;
 let selectedTourneyId = null;
@@ -24,7 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
   populateH2HSelects();
 });
 
-// Tab Router
+// Tab Navigation
 function switchTab(tabKey) {
   document.querySelectorAll(".tab-content").forEach(el => el.classList.add("hidden"));
   document.querySelectorAll(".tab-btn").forEach(el => {
@@ -37,6 +37,7 @@ function switchTab(tabKey) {
   if (sec) sec.classList.remove("hidden");
   if (tab) tab.classList.add("border-amber-400", "text-amber-400");
 
+  if (tabKey === 'tournament') renderTournamentView();
   if (tabKey === 'championship') renderChampionshipTable();
   if (tabKey === 'cumulative') renderCumulativeTable();
   if (tabKey === 'h2h') renderH2H();
@@ -62,7 +63,6 @@ async function generateFixtures() {
     return;
   }
 
-  // Auto-number tournament: T1, T2, T3...
   const tourneyNumber = allTournaments.length + 1;
   const tourneyCode = `T${tourneyNumber}`;
 
@@ -94,20 +94,21 @@ async function generateFixtures() {
   selectedTourneyId = docRef.id;
 }
 
-// Complete Current Night / Start New Night
+// Archive / Finish Active Night
 async function archiveCurrentNight() {
-  if (!currentTournament) return;
-  if (confirm("Complete this night and mark it as archived? You can still view its history in the dropdown selector.")) {
-    await db.collection("tournaments").doc(currentTournament.id).update({ status: 'completed' });
+  const tourney = getActiveOrSelectedTournament();
+  if (!tourney) return;
+  if (confirm(`Finish ${tourney.code || 'this tournament'} and mark it as complete?`)) {
+    await db.collection("tournaments").doc(tourney.id).update({ status: 'completed' });
     selectedTourneyId = null;
   }
 }
 
-// Delete / Reset Selected Tournament
+// Delete Selected Tournament
 async function deleteSelectedTournament() {
   const tourney = getActiveOrSelectedTournament();
   if (!tourney) return;
-  if (confirm(`Are you sure you want to delete ${tourney.code || 'this tournament'}? This cannot be undone.`)) {
+  if (confirm(`Are you sure you want to delete ${tourney.code || 'this tournament'}?`)) {
     await db.collection("tournaments").doc(tourney.id).delete();
     selectedTourneyId = null;
   }
@@ -133,44 +134,51 @@ function calculateMatchPoints(p1Balls, p2Balls) {
   return { p1Pts, p2Pts };
 }
 
-// Get Currently Selected Tournament (Active or Selected from History)
+// Get Currently Selected or Active Tournament
 function getActiveOrSelectedTournament() {
   if (selectedTourneyId) {
-    return allTournaments.find(t => t.id === selectedTourneyId) || null;
+    const found = allTournaments.find(t => t.id === selectedTourneyId);
+    if (found) return found;
   }
-  return allTournaments.find(t => t.status === 'active') || allTournaments[0] || null;
+  return allTournaments.find(t => t.status === 'active') || allTournaments[allTournaments.length - 1] || null;
 }
 
-// Listen to Firestore Realtime Updates
+// Listen to Firestore Realtime Data
 function listenToData() {
   db.collection("tournaments").onSnapshot(snapshot => {
     allTournaments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    // Sort chronologically by date
     allTournaments.sort((a, b) => new Date(a.date) - new Date(b.date));
 
     currentTournament = getActiveOrSelectedTournament();
-
-    renderTournamentSelector();
-
-    if (currentTournament) {
-      document.getElementById("attendance-card")?.classList.add("hidden");
-      document.getElementById("tournament-table-card")?.classList.remove("hidden");
-      document.getElementById("fixtures-card")?.classList.remove("hidden");
-      document.getElementById("playoffs-card")?.classList.remove("hidden");
-
-      renderTournamentTable();
-      renderFixtures();
-      renderPlayoffs();
-    } else {
-      document.getElementById("attendance-card")?.classList.remove("hidden");
-      document.getElementById("tournament-table-card")?.classList.add("hidden");
-      document.getElementById("fixtures-card")?.classList.add("hidden");
-      document.getElementById("playoffs-card")?.classList.add("hidden");
-    }
+    renderTournamentView();
   });
 }
 
-// Render Tournament Dropdown Selector (T1, T2, T3...)
+// Main View Render for Tournament Tab
+function renderTournamentView() {
+  currentTournament = getActiveOrSelectedTournament();
+
+  renderTournamentSelector();
+
+  if (currentTournament) {
+    document.getElementById("attendance-card")?.classList.add("hidden");
+    document.getElementById("tournament-table-card")?.classList.remove("hidden");
+    document.getElementById("fixtures-card")?.classList.remove("hidden");
+    document.getElementById("playoffs-card")?.classList.remove("hidden");
+
+    renderTournamentTable();
+    renderFixtures();
+    renderPlayoffs();
+  } else {
+    document.getElementById("attendance-card")?.classList.remove("hidden");
+    document.getElementById("tournament-table-card")?.classList.add("hidden");
+    document.getElementById("fixtures-card")?.classList.add("hidden");
+    document.getElementById("playoffs-card")?.classList.add("hidden");
+    document.getElementById("top-3-podium").innerHTML = "";
+  }
+}
+
+// Render Sub-tabs (T1, T2, T3...) Dropdown Bar
 function renderTournamentSelector() {
   const container = document.getElementById("tourney-selector-container");
   if (!container) return;
@@ -180,48 +188,69 @@ function renderTournamentSelector() {
     return;
   }
 
+  const activeTourney = getActiveOrSelectedTournament();
+
   container.innerHTML = `
-    <div class="flex items-center justify-between bg-slate-900/90 p-2 rounded-lg border border-slate-700/60 mb-3 text-xs">
-      <div class="flex items-center gap-2">
-        <span class="text-slate-400 font-bold">Select Tournament:</span>
-        <select id="tourney-select" onchange="onSelectTournament(this.value)" class="bg-slate-800 border border-slate-700 text-amber-400 font-bold rounded px-2 py-1">
-          ${allTournaments.map((t, idx) => `
-            <option value="${t.id}" ${currentTournament && currentTournament.id === t.id ? 'selected' : ''}>
-              ${t.code || `T${idx + 1}`} - ${new Date(t.date).toLocaleDateString()}${t.status === 'active' ? '(Active)' : '(Archived)'}
-            </option>
-          `).join('')}
-        </select>
+    <div class="bg-slate-900/90 p-2.5 rounded-lg border border-slate-700/80 mb-3">
+      <div class="flex items-center justify-between gap-2 mb-2">
+        <span class="text-xs font-bold text-slate-300">Select Night / Tournament:</span>
+        <div class="flex gap-1.5">
+          ${activeTourney && activeTourney.status === 'active' 
+            ? `<button onclick="archiveCurrentNight()" class="bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold px-2 py-1 rounded">Finish Night</button>` 
+            : `<button onclick="startNewNight()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] px-2 py-1 rounded">+ New Night</button>`
+          }
+          <button onclick="deleteSelectedTournament()" class="bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-bold px-2 py-1 rounded">Delete</button>
+        </div>
       </div>
-      <div class="flex gap-1">
-        ${currentTournament && currentTournament.status === 'active' 
-          ? `<button onclick="archiveCurrentNight()" class="bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-[10px] px-2 py-1 rounded">Finish Night</button>` 
-          : `<button onclick="selectedTourneyId=null; listenToData();" class="bg-amber-500 text-slate-950 font-bold text-[10px] px-2 py-1 rounded">+ New Night</button>`
-        }
-        <button onclick="deleteSelectedTournament()" class="bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] px-2 py-1 rounded">Delete</button>
+
+      <div class="flex flex-wrap gap-1.5 pt-1">
+        ${allTournaments.map((t, idx) => {
+          const code = t.code || `T${idx + 1}`;
+          const isSelected = activeTourney && activeTourney.id === t.id;
+          const isActiveStatus = t.status === 'active';
+
+          return `
+            <button onclick="onSelectTournament('${t.id}')" 
+              class="px-2.5 py-1 rounded text-xs font-bold transition-all ${
+                isSelected 
+                  ? 'bg-amber-400 text-slate-950 shadow-md' 
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+              }">
+              ${code}${isActiveStatus ? '🟢' : ''}
+            </button>
+          `;
+        }).join('')}
       </div>
     </div>
   `;
 }
 
-function onSelectTournament(id) {
-  selectedTourneyId = id;
-  currentTournament = allTournaments.find(t => t.id === id);
-  renderTournamentTable();
-  renderFixtures();
-  renderPlayoffs();
+function startNewNight() {
+  selectedTourneyId = 'NEW_NIGHT';
+  document.getElementById("attendance-card")?.classList.remove("hidden");
+  document.getElementById("tournament-table-card")?.classList.add("hidden");
+  document.getElementById("fixtures-card")?.classList.add("hidden");
+  document.getElementById("playoffs-card")?.classList.add("hidden");
+  document.getElementById("top-3-podium").innerHTML = "";
+  renderTournamentSelector();
 }
 
-// Render Live Tournament Table (STRICTLY ROUND ROBIN ONLY)
+function onSelectTournament(id) {
+  selectedTourneyId = id;
+  renderTournamentView();
+}
+
+// Render Tournament Table with Medals & Podium Sync
 function renderTournamentTable() {
   const tourney = getActiveOrSelectedTournament();
   if (!tourney) return;
 
-  const { players, matches } = tourney;
+  const { players, matches, playoffs = [] } = tourney;
   const stats = {};
 
   players.forEach(p => stats[p] = { player: p, p: 0, w: 0, l: 0, pts: 0, ballsFor: 0, ballsAgainst: 0 });
 
-  // Strictly filter ROUND ROBIN matches only so standings lock once RR is done
+  // Round robin standings calculation
   matches.filter(m => m.completed).forEach(m => {
     const { p1Pts, p2Pts } = calculateMatchPoints(m.p1Balls, m.p2Balls);
     if (stats[m.p1]) {
@@ -246,11 +275,22 @@ function renderTournamentTable() {
     return (b.ballsFor - b.ballsAgainst) - (a.ballsFor - a.ballsAgainst);
   });
 
+  // Check if playoffs are fully finished
+  const fin = playoffs.find(m => m.id === 'final');
+  const p3rd = playoffs.find(m => m.id === 'p3rd');
+  const isPlayoffsFinished = fin && fin.completed && p3rd && p3rd.completed;
+
+  let champion = null, runnerUp = null, thirdPlace = null;
+  if (isPlayoffsFinished) {
+    champion = fin.p1Balls > fin.p2Balls ? fin.p1 : fin.p2;
+    runnerUp = fin.p1Balls > fin.p2Balls ? fin.p2 : fin.p1;
+    thirdPlace = p3rd.p1Balls > p3rd.p2Balls ? p3rd.p1 : p3rd.p2;
+  }
+
   const count = players.length;
   const badge = document.getElementById("player-count-badge");
   if (badge) badge.innerText = `${tourney.code || 'Tournament'} • ${count} Players`;
 
-  // Render Top 3 Podium Box if Playoffs are finished
   renderTop3Podium(tourney);
 
   const tbody = document.getElementById("tbl-tournament");
@@ -263,10 +303,20 @@ function renderTournamentTable() {
     if (count === 5 && idx === 2) borderClass = "border-qualify-playoff";
     if (count === 4 && idx === 1) borderClass = "border-qualify-semi";
 
+    // Medal assignment based on final playoff outcome
+    let medalBadge = "";
+    if (isPlayoffsFinished) {
+      if (row.player === champion) medalBadge = ' <span title="1st Place (Champion)">🥇</span>';
+      else if (row.player === runnerUp) medalBadge = ' <span title="2nd Place (Runner Up)">🥈</span>';
+      else if (row.player === thirdPlace) medalBadge = ' <span title="3rd Place">🥉</span>';
+    }
+
     return `
       <tr class="${borderClass}">
         <td class="p-1.5 text-slate-400 font-mono">${idx + 1}</td>
-        <td class="p-1.5 font-bold text-slate-200">${row.player}</td>
+        <td class="p-1.5 font-bold text-slate-200">
+          ${row.player}${medalBadge}
+        </td>
         <td class="p-1.5 text-center">${row.p}</td>
         <td class="p-1.5 text-center text-emerald-400">${row.w}</td>
         <td class="p-1.5 text-center text-rose-400">${row.l}</td>
@@ -276,7 +326,7 @@ function renderTournamentTable() {
   }).join('');
 }
 
-// Render Top 3 Callout Podium
+// Render Top 3 Podium Callout Banner
 function renderTop3Podium(tourney) {
   const container = document.getElementById("top-3-podium");
   if (!container) return;
@@ -296,18 +346,18 @@ function renderTop3Podium(tourney) {
 
   container.innerHTML = `
     <div class="bg-gradient-to-r from-amber-500/20 via-slate-900 to-amber-500/20 border border-amber-400/40 p-3 rounded-lg text-center mb-3">
-      <p class="text-[10px] font-bold tracking-widest uppercase text-amber-400 mb-1">Night Winner & Podium</p>
+      <p class="text-[10px] font-bold tracking-widest uppercase text-amber-400 mb-1">${tourney.code || 'Tournament'} Champions</p>
       <div class="grid grid-cols-3 gap-2 text-xs pt-1">
         <div class="bg-slate-900/80 p-1.5 rounded border border-amber-400/30">
-          <span class="text-[9px] text-amber-400 font-bold block">🥇 1st (CHAMPION)</span>
+          <span class="text-[9px] text-amber-400 font-bold block">🥇 1st Place</span>
           <span class="font-bold text-slate-100">${champion}</span>
         </div>
         <div class="bg-slate-900/80 p-1.5 rounded border border-slate-700">
-          <span class="text-[9px] text-slate-300 font-bold block">🥈 2nd (RUNNER-UP)</span>
+          <span class="text-[9px] text-slate-300 font-bold block">🥈 2nd Place</span>
           <span class="font-bold text-slate-200">${runnerUp}</span>
         </div>
         <div class="bg-slate-900/80 p-1.5 rounded border border-amber-700/40">
-          <span class="text-[9px] text-amber-600 font-bold block">🥉 3rd PLACE</span>
+          <span class="text-[9px] text-amber-600 font-bold block">🥉 3rd Place</span>
           <span class="font-bold text-slate-300">${thirdPlace}</span>
         </div>
       </div>
@@ -315,7 +365,7 @@ function renderTop3Podium(tourney) {
   `;
 }
 
-// Render Fixtures Cards
+// Render Round Robin Fixtures Cards
 function renderFixtures() {
   const tourney = getActiveOrSelectedTournament();
   const container = document.getElementById("list-fixtures");
@@ -323,7 +373,7 @@ function renderFixtures() {
 
   container.innerHTML = `
     <div class="flex justify-between items-center mb-2">
-      <span class="text-xs font-bold text-slate-400">Round Robin Matches</span>
+      <span class="text-xs font-bold text-slate-400">Round Robin Matches (${tourney.code || 'Tournament'})</span>
     </div>
   ` + tourney.matches.map(m => {
     const isDone = m.completed;
@@ -352,7 +402,7 @@ function renderFixtures() {
   }).join('');
 }
 
-// Helper to Build/Sync Playoff Matches
+// Helper to Build Playoff Matches based on Round Robin Standings
 function getOrInitializePlayoffMatches() {
   const tourney = getActiveOrSelectedTournament();
   if (!tourney) return [];
@@ -438,7 +488,7 @@ function renderPlayoffs() {
 
   container.innerHTML = `
     <div class="flex justify-between items-center mb-3">
-      <h3 class="text-sm font-bold text-amber-400">Final Knockout Playoffs</h3>
+      <h3 class="text-sm font-bold text-amber-400">Final Knockout Playoffs (${tourney.code || 'Tournament'})</h3>
       <span class="text-[10px] bg-amber-400/10 text-amber-400 border border-amber-400/30 px-2 py-0.5 rounded">Knockout Stage</span>
     </div>
 
@@ -475,7 +525,7 @@ function renderPlayoffs() {
   `;
 }
 
-// Open Score Modal
+// Score Modal Functions
 function openEditModal(matchId, isPlayoff = false) {
   const tourney = getActiveOrSelectedTournament();
   let match;
@@ -508,7 +558,6 @@ function closeModal() {
   document.getElementById("modal-edit").classList.add("hidden");
 }
 
-// Save Score to Firestore
 async function saveMatchScore(matchId, isPlayoff = false) {
   const tourney = getActiveOrSelectedTournament();
   const p1B = parseInt(document.getElementById("inp-p1").value);
@@ -538,9 +587,8 @@ async function saveMatchScore(matchId, isPlayoff = false) {
   closeModal();
 }
 
-// Get Finishing Position Points based on player count and rank
+// Finishing Position Points Calculator
 function getFinishingPositionPoints(playerCount, rankIndex) {
-  // Rank index 0 = 1st, 1 = 2nd, etc.
   if (playerCount === 6) {
     const scale = [10, 6, 4, 3, 2, 1];
     return scale[rankIndex] || 0;
@@ -554,13 +602,12 @@ function getFinishingPositionPoints(playerCount, rankIndex) {
   return 0;
 }
 
-// Calculate Final Ranks for a Tournament (incorporates playoffs)
+// Final Ranks Calculator
 function calculateTournamentFinalRanks(t) {
   const { players, matches, playoffs = [] } = t;
   const stats = {};
   players.forEach(p => stats[p] = { player: p, pts: 0, w: 0, ballsFor: 0, ballsAgainst: 0 });
 
-  // RR standings first
   matches.filter(m => m.completed).forEach(m => {
     const { p1Pts, p2Pts } = calculateMatchPoints(m.p1Balls, m.p2Balls);
     stats[m.p1].pts += p1Pts; stats[m.p2].pts += p2Pts;
@@ -575,7 +622,7 @@ function calculateTournamentFinalRanks(t) {
     return (b.ballsFor - b.ballsAgainst) - (a.ballsFor - a.ballsAgainst);
   }).map(s => s.player);
 
-  const finalRanks = [...rrSorted]; // default to RR order
+  const finalRanks = [...rrSorted];
 
   const fin = playoffs.find(m => m.id === 'final');
   const p3rd = playoffs.find(m => m.id === 'p3rd');
@@ -595,7 +642,7 @@ function calculateTournamentFinalRanks(t) {
   return finalRanks;
 }
 
-// Render Championship Table
+// Render Championship Leaderboard
 function renderChampionshipTable() {
   const container = document.getElementById("sec-championship");
   if (!container) return;
@@ -606,11 +653,7 @@ function renderChampionshipTable() {
     played: 0, 
     champPts: 0, 
     totalGamePts: 0,
-    c: 0,   // Titles
-    ru: 0,  // Runner up
-    po: 0,  // Playoff appearances
-    w: 0, 
-    l: 0 
+    c: 0, ru: 0, po: 0, w: 0, l: 0 
   });
 
   allTournaments.forEach(t => {
@@ -634,7 +677,6 @@ function renderChampionshipTable() {
       if (stats[p]) stats[p].totalGamePts += playerGamePtsInTourney[p];
     });
 
-    // Playoff appearances check (max 1 count per tournament)
     const playoffs = t.playoffs || [];
     const playoffParticipants = new Set();
     playoffs.forEach(m => {
@@ -646,7 +688,6 @@ function renderChampionshipTable() {
       if (stats[p]) stats[p].po++;
     });
 
-    // Award finishing position points
     const ranks = calculateTournamentFinalRanks(t);
     ranks.forEach((p, rankIdx) => {
       if (stats[p]) {
@@ -762,7 +803,7 @@ function renderCumulativeTable() {
   `;
 }
 
-// Populate Head-to-Head Dropdowns
+// Populate Head-to-Head Options
 function populateH2HSelects() {
   const p1Sel = document.getElementById("h2h-p1");
   const p2Sel = document.getElementById("h2h-p2");

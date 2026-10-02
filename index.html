@@ -1,211 +1,122 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Monthly Pool League</title>
+  <title>Drafters Pool League</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Firebase Web SDKs -->
-  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="styles.css">
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <style>
+    .border-qualify-semi { border-left: 4px solid #f59e0b; }
+    .border-qualify-direct-final { border-left: 4px solid #10b981; }
+    .border-qualify-playoff { border-left: 4px solid #3b82f6; }
+  </style>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen font-sans pb-20">
+<body class="bg-slate-950 text-slate-100 min-h-screen pb-12 font-sans">
 
-  <!-- Header -->
-  <header class="bg-slate-800 border-b border-slate-700 p-4 sticky top-0 z-30 flex justify-between items-center shadow-md">
-    <h1 class="text-xl font-bold text-amber-400 flex items-center gap-2">
-      <span class="text-2xl">🎱</span> Pool League
-    </h1>
-    <button id="btn-new-tournament" class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-3 py-1.5 rounded-lg text-sm transition">
-      + New Night
-    </button>
+  <!-- Header & Navigation -->
+  <header class="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-50">
+    <div class="max-w-xl mx-auto flex justify-between items-center">
+      <h1 class="text-base font-black tracking-wider text-amber-400 uppercase">Drafters Pool League</h1>
+    </div>
+    <!-- Navigation Tabs -->
+    <nav class="max-w-xl mx-auto flex gap-1 mt-3 border-b border-slate-800 text-xs">
+      <button id="tab-tournament" onclick="switchTab('tournament')" class="tab-btn py-2 px-3 border-b-2 border-amber-400 text-amber-400 font-bold">Tournament</button>
+      <button id="tab-championship" onclick="switchTab('championship')" class="tab-btn py-2 px-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200">Championship</button>
+      <button id="tab-cumulative" onclick="switchTab('cumulative')" class="tab-btn py-2 px-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200">Cumulative</button>
+      <button id="tab-h2h" onclick="switchTab('h2h')" class="tab-btn py-2 px-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200">H2H</button>
+    </nav>
   </header>
 
-  <!-- Navigation Tabs -->
-  <nav class="bg-slate-800 border-b border-slate-700 flex justify-around text-xs font-semibold text-slate-400 sticky top-[57px] z-20">
-    <button onclick="switchTab('tournament')" id="tab-tournament" class="tab-btn py-3 px-2 border-b-2 border-amber-400 text-amber-400 flex-1 text-center">Tournament</button>
-    <button onclick="switchTab('championship')" id="tab-championship" class="tab-btn py-3 px-2 border-b-2 border-transparent flex-1 text-center">Championship</button>
-    <button onclick="switchTab('cumulative')" id="tab-cumulative" class="tab-btn py-3 px-2 border-b-2 border-transparent flex-1 text-center">Cumulative</button>
-    <button onclick="switchTab('h2h')" id="tab-h2h" class="tab-btn py-3 px-2 border-b-2 border-transparent flex-1 text-center">Head-to-Head</button>
-    <button onclick="switchTab('rules')" id="tab-rules" class="tab-btn py-3 px-2 border-b-2 border-transparent flex-1 text-center">Rules</button>
-  </nav>
+  <main class="max-w-xl mx-auto p-4 space-y-4">
 
-  <main class="max-w-md mx-auto p-4 space-y-6">
+    <!-- 1. TOURNAMENT TAB -->
+    <section id="sec-tournament" class="tab-content space-y-4">
 
-    <!-- TAB 1: TOURNAMENT -->
-    <section id="sec-tournament" class="tab-content space-y-6">
-      <!-- Active Night Banner / Attendance Setup -->
-      <div id="attendance-card" class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm">
-        <h2 class="text-base font-bold text-slate-200 mb-2">Setup Match Night</h2>
-        <p class="text-xs text-slate-400 mb-3">Select active players for this tournament (4 to 6 players):</p>
-        <div id="player-checkboxes" class="grid grid-cols-2 gap-2 mb-4">
-          <!-- Populated dynamically -->
-        </div>
-        <button onclick="generateFixtures()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg text-sm transition">
+      <!-- Tournament Sub-tabs / Selector (T1, T2, T3...) -->
+      <div id="tourney-selector-container"></div>
+
+      <!-- Top 3 Podium Summary Banner -->
+      <div id="top-3-podium"></div>
+
+      <!-- Attendance Setup Card -->
+      <div id="attendance-card" class="bg-slate-900/90 p-4 rounded-lg border border-slate-800">
+        <h2 class="text-sm font-bold text-amber-400 mb-2">New Tournament Setup</h2>
+        <p class="text-xs text-slate-400 mb-3">Select attending players (4-6):</p>
+        <div id="player-checkboxes" class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4"></div>
+        <button onclick="generateFixtures()" class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2 rounded text-xs transition-colors">
           Start Tournament
         </button>
       </div>
 
-      <!-- League Table -->
-      <div id="tournament-table-card" class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm hidden">
-        <div class="flex justify-between items-center mb-3">
-          <h2 class="text-base font-bold text-slate-200">Live League Table</h2>
-          <span id="player-count-badge" class="text-xs bg-slate-700 px-2 py-0.5 rounded text-amber-400 font-mono">6 Players</span>
+      <!-- Round Robin Table Card -->
+      <div id="tournament-table-card" class="bg-slate-900/90 p-3 rounded-lg border border-slate-800 hidden">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="text-xs font-bold text-amber-400">Round Robin Standings</h3>
+          <span id="player-count-badge" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700"></span>
         </div>
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs">
+          <table class="w-full text-xs text-left text-slate-300">
             <thead>
-              <tr class="text-slate-400 border-b border-slate-700 pb-1">
+              <tr class="border-b border-slate-800 text-[10px] text-slate-400">
                 <th class="p-1.5">#</th>
                 <th class="p-1.5">Player</th>
                 <th class="p-1.5 text-center">P</th>
-                <th class="p-1.5 text-center">W</th>
-                <th class="p-1.5 text-center">L</th>
-                <th class="p-1.5 text-right">Pts</th>
+                <th class="p-1.5 text-center text-emerald-400">W</th>
+                <th class="p-1.5 text-center text-rose-400">L</th>
+                <th class="p-1.5 text-right text-amber-400 font-bold">Pts</th>
               </tr>
             </thead>
-            <tbody id="tbl-tournament" class="divide-y divide-slate-700/50">
-              <!-- Rows inserted dynamically with qualification borders -->
-            </tbody>
+            <tbody id="tbl-tournament"></tbody>
           </table>
         </div>
       </div>
 
-      <!-- Fixtures & Results -->
-      <div id="fixtures-card" class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm hidden">
-        <h2 class="text-base font-bold text-slate-200 mb-3">Round Robin Fixtures</h2>
-        <div id="list-fixtures" class="space-y-3">
-          <!-- Fixture cards inserted dynamically -->
-        </div>
+      <!-- Fixtures List Card -->
+      <div id="fixtures-card" class="hidden">
+        <div id="list-fixtures"></div>
       </div>
 
-      <!-- Playoff Stage -->
-      <div id="playoffs-card" class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm hidden">
-        <h2 class="text-base font-bold text-slate-200 mb-3">Playoff & Final Stage</h2>
-        <div id="list-playoffs" class="space-y-3">
-          <!-- Playoff matches inserted dynamically -->
-        </div>
-      </div>
+      <!-- Knockout Playoffs Card -->
+      <div id="playoffs-card" class="bg-slate-900/90 p-3 rounded-lg border border-slate-800 hidden"></div>
+
     </section>
 
-    <!-- TAB 2: CHAMPIONSHIP TABLE -->
-    <section id="sec-championship" class="tab-content hidden space-y-4">
-      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm">
-        <h2 class="text-base font-bold text-amber-400 mb-1">Season Championship Standings</h2>
-        <p class="text-xs text-slate-400 mb-3">Points awarded based on monthly tournament finish positions.</p>
-        <table class="w-full text-left text-xs">
-          <thead>
-            <tr class="text-slate-400 border-b border-slate-700">
-              <th class="p-2">Pos</th>
-              <th class="p-2">Player</th>
-              <th class="p-2 text-center">Tournaments</th>
-              <th class="p-2 text-right">Champ Pts</th>
-            </tr>
-          </thead>
-          <tbody id="tbl-championship" class="divide-y divide-slate-700">
-            <!-- Populated dynamically -->
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <!-- 2. CHAMPIONSHIP TAB -->
+    <section id="sec-championship" class="tab-content hidden"></section>
 
-    <!-- TAB 3: CUMULATIVE STATS -->
-    <section id="sec-cumulative" class="tab-content hidden space-y-4">
-      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm">
-        <h2 class="text-base font-bold text-slate-200 mb-3">All-Time Cumulative Table</h2>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs">
-            <thead>
-              <tr class="text-slate-400 border-b border-slate-700">
-                <th class="p-1.5">Player</th>
-                <th class="p-1.5 text-center">Nights</th>
-                <th class="p-1.5 text-center">W</th>
-                <th class="p-1.5 text-center">L</th>
-                <th class="p-1.5 text-center">Playoffs</th>
-                <th class="p-1.5 text-center">Finals</th>
-                <th class="p-1.5 text-center">Titles</th>
-                <th class="p-1.5 text-right">Pts</th>
-              </tr>
-            </thead>
-            <tbody id="tbl-cumulative" class="divide-y divide-slate-700">
-              <!-- Populated dynamically -->
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+    <!-- 3. CUMULATIVE TAB -->
+    <section id="sec-cumulative" class="tab-content hidden"></section>
 
-    <!-- TAB 4: HEAD TO HEAD -->
+    <!-- 4. HEAD-TO-HEAD TAB -->
     <section id="sec-h2h" class="tab-content hidden space-y-4">
-      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm space-y-3">
-        <h2 class="text-base font-bold text-slate-200">Head-to-Head Comparison</h2>
-        <div class="grid grid-cols-2 gap-2">
+      <div class="bg-slate-900 p-3 rounded-lg border border-slate-800">
+        <h3 class="text-xs font-bold text-amber-400 mb-3">Head-to-Head Stats</h3>
+        <div class="grid grid-cols-2 gap-2 mb-3">
           <div>
-            <label class="text-xs text-slate-400">Player 1</label>
-            <select id="h2h-p1" onchange="renderH2H()" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-amber-400 font-bold"></select>
+            <label class="text-[10px] text-slate-400 block mb-1">Player 1</label>
+            <select id="h2h-p1" onchange="renderH2H()" class="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-xs text-slate-100"></select>
           </div>
           <div>
-            <label class="text-xs text-slate-400">Player 2</label>
-            <select id="h2h-p2" onchange="renderH2H()" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-amber-400 font-bold"></select>
+            <label class="text-[10px] text-slate-400 block mb-1">Player 2</label>
+            <select id="h2h-p2" onchange="renderH2H()" class="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-xs text-slate-100"></select>
           </div>
         </div>
-        <div id="h2h-result-card" class="bg-slate-900/60 p-3 rounded-lg border border-slate-700/50 text-center space-y-2">
-          <!-- Populated dynamically -->
-        </div>
+        <div id="h2h-result-card" class="space-y-2"></div>
       </div>
     </section>
 
-    <!-- TAB 5: RULES & SCORING -->
-    <section id="sec-rules" class="tab-content hidden space-y-4 text-xs text-slate-300">
-      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm space-y-3">
-        <h2 class="text-sm font-bold text-amber-400">Match Scoring Rules</h2>
-        <ul class="list-disc pl-4 space-y-1 text-slate-300">
-          <li><strong>Ball Potted:</strong> 0.25 points per ball.</li>
-          <li><strong>Frame Win:</strong> +5.00 points to winner.</li>
-          <li><strong>Black Ball Loss:</strong> +1.00 point bonus to loser (if 7 balls potted).</li>
-          <li><strong>Shutout Win (8–0):</strong> +1.00 point bonus to winner (0 balls potted by loser).</li>
-          <li><strong>Foul on Black:</strong> Opponent automatically awarded 8 balls and frame win. Offending player keeps points for balls potted up to the foul.</li>
-        </ul>
-
-        <h2 class="text-sm font-bold text-amber-400 pt-2">League Tiebreaker Order</h2>
-        <ol class="list-decimal pl-4 space-y-1 text-slate-300">
-          <li>Total Match Points</li>
-          <li>Head-to-Head Result</li>
-          <li>Most Wins</li>
-          <li>Total Balls Difference</li>
-        </ol>
-
-        <h2 class="text-sm font-bold text-amber-400 pt-2">Championship Points Distribution</h2>
-        <div class="grid grid-cols-3 gap-2 text-center text-[11px]">
-          <div class="bg-slate-900 p-2 rounded border border-slate-700">
-            <p class="font-bold text-amber-400 mb-1">6 Players</p>
-            1st: 10pts | 2nd: 6pts<br>3rd: 4pts | 4th: 3pts<br>5th: 2pts | 6th: 1pt
-          </div>
-          <div class="bg-slate-900 p-2 rounded border border-slate-700">
-            <p class="font-bold text-amber-400 mb-1">5 Players</p>
-            1st: 9pts | 2nd: 5pts<br>3rd: 3pts | 4th: 2pts<br>5th: 1pt
-          </div>
-          <div class="bg-slate-900 p-2 rounded border border-slate-700">
-            <p class="font-bold text-amber-400 mb-1">4 Players</p>
-            1st: 7pts | 2nd: 4pts<br>3rd: 2pts | 4th: 1pt
-          </div>
-        </div>
-      </div>
-    </section>
   </main>
 
-  <!-- Edit Match Modal -->
-  <div id="modal-edit" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-slate-800 border border-slate-700 w-full max-w-xs rounded-xl p-4 space-y-4">
-      <h3 class="text-sm font-bold text-slate-200">Edit Frame Score</h3>
-      <div id="modal-edit-body" class="space-y-3">
-        <!-- Input fields injected dynamically -->
-      </div>
+  <!-- Edit Score Modal -->
+  <div id="modal-edit" class="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 hidden z-50">
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 w-full max-w-xs space-y-4">
+      <h3 class="text-sm font-bold text-amber-400">Enter Match Result</h3>
+      <div id="modal-edit-body" class="space-y-3"></div>
       <div class="flex gap-2">
-        <button onclick="closeModal()" class="flex-1 bg-slate-700 text-xs text-slate-300 font-bold py-2 rounded-lg">Cancel</button>
-        <button id="btn-save-edit" class="flex-1 bg-amber-500 text-xs text-slate-950 font-bold py-2 rounded-lg">Save Score</button>
+        <button onclick="closeModal()" class="w-1/2 bg-slate-800 text-slate-300 py-2 rounded text-xs font-bold">Cancel</button>
+        <button id="btn-save-edit" class="w-1/2 bg-amber-500 text-slate-950 py-2 rounded text-xs font-bold">Save Score</button>
       </div>
     </div>
   </div>
