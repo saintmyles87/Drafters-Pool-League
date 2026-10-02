@@ -42,6 +42,7 @@ function switchTab(tabKey) {
 // Render Setup Checkboxes
 function renderPlayerCheckboxes() {
   const container = document.getElementById("player-checkboxes");
+  if (!container) return;
   container.innerHTML = ALL_PLAYERS.map((p, i) => `
     <label class="flex items-center gap-2 bg-slate-900 p-2 rounded border border-slate-700/50 text-xs cursor-pointer">
       <input type="checkbox" value="${p}" checked class="p-check accent-amber-400">
@@ -111,13 +112,14 @@ function listenToData() {
     currentTournament = allTournaments.find(t => t.status === 'active') || allTournaments[0];
 
     if (currentTournament) {
-      document.getElementById("attendance-card").classList.add("hidden");
-      document.getElementById("tournament-table-card").classList.remove("hidden");
-      document.getElementById("fixtures-card").classList.remove("hidden");
-      document.getElementById("playoffs-card").classList.remove("hidden");
+      document.getElementById("attendance-card")?.classList.add("hidden");
+      document.getElementById("tournament-table-card")?.classList.remove("hidden");
+      document.getElementById("fixtures-card")?.classList.remove("hidden");
+      document.getElementById("playoffs-card")?.classList.remove("hidden");
 
       renderTournamentTable();
       renderFixtures();
+      renderPlayoffs();
     }
   });
 }
@@ -147,9 +149,12 @@ function renderTournamentTable() {
   });
 
   const count = players.length;
-  document.getElementById("player-count-badge").innerText = `${count} Players`;
+  const badge = document.getElementById("player-count-badge");
+  if (badge) badge.innerText = `${count} Players`;
 
   const tbody = document.getElementById("tbl-tournament");
+  if (!tbody) return;
+
   tbody.innerHTML = sorted.map((row, idx) => {
     let borderClass = "";
     if (count === 6 && idx === 3) borderClass = "border-qualify-semi";
@@ -173,6 +178,8 @@ function renderTournamentTable() {
 // Render Fixtures Cards
 function renderFixtures() {
   const container = document.getElementById("list-fixtures");
+  if (!container) return;
+
   container.innerHTML = currentTournament.matches.map(m => {
     const isDone = m.completed;
     const { p1Pts, p2Pts } = calculateMatchPoints(m.p1Balls, m.p2Balls);
@@ -200,10 +207,79 @@ function renderFixtures() {
   }).join('');
 }
 
+// Render Playoffs Section
+function renderPlayoffs() {
+  const container = document.getElementById("playoffs-card");
+  if (!currentTournament || !container) return;
+
+  const { players, matches } = currentTournament;
+  const allRRCompleted = matches.length > 0 && matches.every(m => m.completed);
+
+  if (!allRRCompleted) {
+    const completedCount = matches.filter(m => m.completed).length;
+    container.innerHTML = `
+      <h3 class="text-sm font-bold text-slate-200 mb-2">Playoffs</h3>
+      <p class="text-xs text-slate-400">Complete all Round Robin matches to unlock playoffs (${completedCount}/${matches.length} completed).</p>
+    `;
+    return;
+  }
+
+  const stats = {};
+  players.forEach(p => stats[p] = { player: p, p: 0, w: 0, l: 0, pts: 0, ballsFor: 0, ballsAgainst: 0 });
+
+  matches.forEach(m => {
+    const { p1Pts, p2Pts } = calculateMatchPoints(m.p1Balls, m.p2Balls);
+    stats[m.p1].pts += p1Pts; stats[m.p2].pts += p2Pts;
+    stats[m.p1].ballsFor += m.p1Balls; stats[m.p1].ballsAgainst += m.p2Balls;
+    stats[m.p2].ballsFor += m.p2Balls; stats[m.p2].ballsAgainst += m.p1Balls;
+    if (m.p1Balls > m.p2Balls) { stats[m.p1].w++; stats[m.p2].l++; }
+    else { stats[m.p2].w++; stats[m.p1].l++; }
+  });
+
+  const sorted = Object.values(stats).sort((a, b) => {
+    if (b.pts !== a.pts) return b.pts - a.pts;
+    if (b.w !== a.w) return b.w - a.w;
+    return (b.ballsFor - b.ballsAgainst) - (a.ballsFor - a.ballsAgainst);
+  });
+
+  const p1 = sorted[0]?.player || "Seed 1";
+  const p2 = sorted[1]?.player || "Seed 2";
+  const p3 = sorted[2]?.player || "Seed 3";
+  const p4 = sorted[3]?.player || "Seed 4";
+
+  container.innerHTML = `
+    <div class="flex justify-between items-center mb-3">
+      <h3 class="text-sm font-bold text-amber-400">Final Playoffs</h3>
+      <span class="text-[10px] bg-amber-400/10 text-amber-400 border border-amber-400/30 px-2 py-0.5 rounded">Knockout Stage</span>
+    </div>
+
+    <div class="space-y-3">
+      <div class="bg-slate-900 p-3 rounded-lg border border-slate-700/60">
+        <p class="text-[10px] font-bold text-slate-400 mb-1">SEMI-FINAL 1 (1st vs 4th)</p>
+        <div class="flex justify-between text-xs font-bold text-slate-200 py-1">
+          <span>${p1} (1st)</span>
+          <span>vs</span>
+          <span>${p4} (4th)</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 p-3 rounded-lg border border-slate-700/60">
+        <p class="text-[10px] font-bold text-slate-400 mb-1">SEMI-FINAL 2 (2nd vs 3rd)</p>
+        <div class="flex justify-between text-xs font-bold text-slate-200 py-1">
+          <span>${p2} (2nd)</span>
+          <span>vs</span>
+          <span>${p3} (3rd)</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 // Open Score Modal
 function openEditModal(matchId) {
   const match = currentTournament.matches.find(m => m.id === matchId);
   const body = document.getElementById("modal-edit-body");
+  if (!body) return;
 
   body.innerHTML = `
     <div>
@@ -244,6 +320,7 @@ async function saveMatchScore(matchId) {
 function populateH2HSelects() {
   const p1Sel = document.getElementById("h2h-p1");
   const p2Sel = document.getElementById("h2h-p2");
+  if (!p1Sel || !p2Sel) return;
 
   p1Sel.innerHTML = ALL_PLAYERS.map(p => `<option value="${p}">${p}</option>`).join('');
   p2Sel.innerHTML = ALL_PLAYERS.map((p, i) => `<option value="${p}" ${i === 1 ? 'selected' : ''}>${p}</option>`).join('');
@@ -254,6 +331,7 @@ function renderH2H() {
   const p1 = document.getElementById("h2h-p1").value;
   const p2 = document.getElementById("h2h-p2").value;
   const card = document.getElementById("h2h-result-card");
+  if (!card) return;
 
   if (p1 === p2) {
     card.innerHTML = `<p class="text-xs text-slate-400">Select two different players.</p>`;
