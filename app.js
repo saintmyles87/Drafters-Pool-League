@@ -14,6 +14,7 @@ const db = firebase.firestore();
 // Global State
 const ALL_PLAYERS = ["Myles", "Danny", "James", "Mike", "Craig", "Franny"];
 let currentTournament = null;
+let selectedTourneyId = null;
 let allTournaments = [];
 
 // App Startup
@@ -61,6 +62,10 @@ async function generateFixtures() {
     return;
   }
 
+  // Auto-number tournament: T1, T2, T3...
+  const tourneyNumber = allTournaments.length + 1;
+  const tourneyCode = `T${tourneyNumber}`;
+
   const matches = [];
   for (let i = 0; i < selected.length; i++) {
     for (let j = i + 1; j < selected.length; j++) {
@@ -77,6 +82,7 @@ async function generateFixtures() {
   }
 
   const tourneyData = {
+    code: tourneyCode,
     date: new Date().toISOString(),
     players: selected,
     status: 'active',
@@ -84,14 +90,26 @@ async function generateFixtures() {
     playoffs: []
   };
 
-  await db.collection("tournaments").add(tourneyData);
+  const docRef = await db.collection("tournaments").add(tourneyData);
+  selectedTourneyId = docRef.id;
 }
 
-// Delete / Reset Active Tournament
-async function deleteCurrentTournament() {
+// Complete Current Night / Start New Night
+async function archiveCurrentNight() {
   if (!currentTournament) return;
-  if (confirm("Are you sure you want to delete this tournament? This will completely reset the tournament data.")) {
-    await db.collection("tournaments").doc(currentTournament.id).delete();
+  if (confirm("Complete this night and mark it as archived? You can still view its history in the dropdown selector.")) {
+    await db.collection("tournaments").doc(currentTournament.id).update({ status: 'completed' });
+    selectedTourneyId = null;
+  }
+}
+
+// Delete / Reset Selected Tournament
+async function deleteSelectedTournament() {
+  const tourney = getActiveOrSelectedTournament();
+  if (!tourney) return;
+  if (confirm(`Are you sure you want to delete ${tourney.code || 'this tournament'}? This cannot be undone.`)) {
+    await db.collection("tournaments").doc(tourney.id).delete();
+    selectedTourneyId = null;
   }
 }
 
@@ -115,11 +133,24 @@ function calculateMatchPoints(p1Balls, p2Balls) {
   return { p1Pts, p2Pts };
 }
 
+// Get Currently Selected Tournament (Active or Selected from History)
+function getActiveOrSelectedTournament() {
+  if (selectedTourneyId) {
+    return allTournaments.find(t => t.id === selectedTourneyId) || null;
+  }
+  return allTournaments.find(t => t.status === 'active') || allTournaments[0] || null;
+}
+
 // Listen to Firestore Realtime Updates
 function listenToData() {
   db.collection("tournaments").onSnapshot(snapshot => {
     allTournaments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    currentTournament = allTournaments.find(t => t.status === 'active') || allTournaments[0] || null;
+    // Sort chronologically by date
+    allTournaments.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    currentTournament = getActiveOrSelectedTournament();
+
+    renderTournamentSelector();
 
     if (currentTournament) {
       document.getElementById("attendance-card")?.classList.add("hidden");
@@ -139,17 +170,59 @@ function listenToData() {
   });
 }
 
-// Render Live Tournament Table
+// Render Tournament Dropdown Selector (T1, T2, T3...)
+function renderTournamentSelector() {
+  const container = document.getElementById("tourney-selector-container");
+  if (!container) return;
+
+  if (allTournaments.length === 0) {
+    container.innerHTML = "";
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="flex items-center justify-between bg-slate-900/90 p-2 rounded-lg border border-slate-700/60 mb-3 text-xs">
+      <div class="flex items-center gap-2">
+        <span class="text-slate-400 font-bold">Select Tournament:</span>
+        <select id="tourney-select" onchange="onSelectTournament(this.value)" class="bg-slate-800 border border-slate-700 text-amber-400 font-bold rounded px-2 py-1">
+          ${allTournaments.map((t, idx) => `
+            <option value="${t.id}" ${currentTournament && currentTournament.id === t.id ? 'selected' : ''}>
+              ${t.code || `T${idx + 1}`} - ${new Date(t.date).toLocaleDateString()}${t.status === 'active' ? '(Active)' : '(Archived)'}
+            </option>
+          `).join('')}
+        </select>
+      </div>
+      <div class="flex gap-1">
+        ${currentTournament && currentTournament.status === 'active' 
+          ? `<button onclick="archiveCurrentNight()" class="bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-[10px] px-2 py-1 rounded">Finish Night</button>` 
+          : `<button onclick="selectedTourneyId=null; listenToData();" class="bg-amber-500 text-slate-950 font-bold text-[10px] px-2 py-1 rounded">+ New Night</button>`
+        }
+        <button onclick="deleteSelectedTournament()" class="bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] px-2 py-1 rounded">Delete</button>
+      </div>
+    </div>
+  `;
+}
+
+function onSelectTournament(id) {
+  selectedTourneyId = id;
+  currentTournament = allTournaments.find(t => t.id === id);
+  renderTournamentTable();
+  renderFixtures();
+  renderPlayoffs();
+}
+
+// Render Live Tournament Table (STRICTLY ROUND ROBIN ONLY)
 function renderTournamentTable() {
-  const { players, matches, playoffs = [] } = currentTournament;
+  const tourney = getActiveOrSelectedTournament();
+  if (!tourney) return;
+
+  const { players, matches } = tourney;
   const stats = {};
 
   players.forEach(p => stats[p] = { player: p, p: 0, w: 0, l: 0, pts: 0, ballsFor: 0, ballsAgainst: 0 });
 
-  // Include both round robin and playoff matches into totals
-  const allMatches = [...matches, ...playoffs];
-
-  allMatches.filter(m => m.completed).forEach(m => {
+  // Strictly filter ROUND ROBIN matches only so standings lock once RR is done
+  matches.filter(m => m.completed).forEach(m => {
     const { p1Pts, p2Pts } = calculateMatchPoints(m.p1Balls, m.p2Balls);
     if (stats[m.p1]) {
       stats[m.p1].p++;
@@ -175,7 +248,10 @@ function renderTournamentTable() {
 
   const count = players.length;
   const badge = document.getElementById("player-count-badge");
-  if (badge) badge.innerText = `${count} Players`;
+  if (badge) badge.innerText = `${tourney.code || 'Tournament'} • ${count} Players`;
+
+  // Render Top 3 Podium Box if Playoffs are finished
+  renderTop3Podium(tourney);
 
   const tbody = document.getElementById("tbl-tournament");
   if (!tbody) return;
@@ -200,17 +276,56 @@ function renderTournamentTable() {
   }).join('');
 }
 
+// Render Top 3 Callout Podium
+function renderTop3Podium(tourney) {
+  const container = document.getElementById("top-3-podium");
+  if (!container) return;
+
+  const playoffs = tourney.playoffs || [];
+  const fin = playoffs.find(m => m.id === 'final');
+  const p3rd = playoffs.find(m => m.id === 'p3rd');
+
+  if (!fin || !fin.completed || !p3rd || !p3rd.completed) {
+    container.innerHTML = "";
+    return;
+  }
+
+  const champion = fin.p1Balls > fin.p2Balls ? fin.p1 : fin.p2;
+  const runnerUp = fin.p1Balls > fin.p2Balls ? fin.p2 : fin.p1;
+  const thirdPlace = p3rd.p1Balls > p3rd.p2Balls ? p3rd.p1 : p3rd.p2;
+
+  container.innerHTML = `
+    <div class="bg-gradient-to-r from-amber-500/20 via-slate-900 to-amber-500/20 border border-amber-400/40 p-3 rounded-lg text-center mb-3">
+      <p class="text-[10px] font-bold tracking-widest uppercase text-amber-400 mb-1">Night Winner & Podium</p>
+      <div class="grid grid-cols-3 gap-2 text-xs pt-1">
+        <div class="bg-slate-900/80 p-1.5 rounded border border-amber-400/30">
+          <span class="text-[9px] text-amber-400 font-bold block">🥇 1st (CHAMPION)</span>
+          <span class="font-bold text-slate-100">${champion}</span>
+        </div>
+        <div class="bg-slate-900/80 p-1.5 rounded border border-slate-700">
+          <span class="text-[9px] text-slate-300 font-bold block">🥈 2nd (RUNNER-UP)</span>
+          <span class="font-bold text-slate-200">${runnerUp}</span>
+        </div>
+        <div class="bg-slate-900/80 p-1.5 rounded border border-amber-700/40">
+          <span class="text-[9px] text-amber-600 font-bold block">🥉 3rd PLACE</span>
+          <span class="font-bold text-slate-300">${thirdPlace}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 // Render Fixtures Cards
 function renderFixtures() {
+  const tourney = getActiveOrSelectedTournament();
   const container = document.getElementById("list-fixtures");
-  if (!container) return;
+  if (!container || !tourney) return;
 
   container.innerHTML = `
     <div class="flex justify-between items-center mb-2">
       <span class="text-xs font-bold text-slate-400">Round Robin Matches</span>
-      <button onclick="deleteCurrentTournament()" class="bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] px-2 py-0.5 rounded">Reset Tournament</button>
     </div>
-  ` + currentTournament.matches.map(m => {
+  ` + tourney.matches.map(m => {
     const isDone = m.completed;
     const { p1Pts, p2Pts } = calculateMatchPoints(m.p1Balls, m.p2Balls);
 
@@ -237,15 +352,18 @@ function renderFixtures() {
   }).join('');
 }
 
-// Helper to Build/Sync Playoffs Matches
+// Helper to Build/Sync Playoff Matches
 function getOrInitializePlayoffMatches() {
-  const { players, matches } = currentTournament;
-  let playoffs = currentTournament.playoffs ? [...currentTournament.playoffs] : [];
+  const tourney = getActiveOrSelectedTournament();
+  if (!tourney) return [];
+
+  const { players, matches } = tourney;
+  let playoffs = tourney.playoffs ? [...tourney.playoffs] : [];
 
   const stats = {};
   players.forEach(p => stats[p] = { player: p, p: 0, w: 0, l: 0, pts: 0, ballsFor: 0, ballsAgainst: 0 });
 
-  matches.forEach(m => {
+  matches.filter(m => m.completed).forEach(m => {
     const { p1Pts, p2Pts } = calculateMatchPoints(m.p1Balls, m.p2Balls);
     stats[m.p1].pts += p1Pts; stats[m.p2].pts += p2Pts;
     stats[m.p1].ballsFor += m.p1Balls; stats[m.p1].ballsAgainst += m.p2Balls;
@@ -260,7 +378,6 @@ function getOrInitializePlayoffMatches() {
     return (b.ballsFor - b.ballsAgainst) - (a.ballsFor - a.ballsAgainst);
   });
 
-  // 1. Semi Finals (1 vs 4, 2 vs 3)
   let sf1 = playoffs.find(m => m.id === 'sf1');
   if (!sf1) {
     sf1 = { id: 'sf1', label: 'SEMI-FINAL 1', p1: sorted[0]?.player, p2: sorted[3]?.player, p1Balls: null, p2Balls: null, completed: false, type: 'playoff' };
@@ -273,7 +390,6 @@ function getOrInitializePlayoffMatches() {
     playoffs.push(sf2);
   }
 
-  // 2. Finals & 3rd Place Playoff (Populated once Semi-Finals are done)
   if (sf1.completed && sf2.completed) {
     const sf1Winner = sf1.p1Balls > sf1.p2Balls ? sf1.p1 : sf1.p2;
     const sf1Loser  = sf1.p1Balls > sf1.p2Balls ? sf1.p2 : sf1.p1;
@@ -303,9 +419,10 @@ function getOrInitializePlayoffMatches() {
 // Render Playoff Section
 function renderPlayoffs() {
   const container = document.getElementById("playoffs-card");
-  if (!currentTournament || !container) return;
+  const tourney = getActiveOrSelectedTournament();
+  if (!tourney || !container) return;
 
-  const { matches } = currentTournament;
+  const { matches } = tourney;
   const allRRCompleted = matches.length > 0 && matches.every(m => m.completed);
 
   if (!allRRCompleted) {
@@ -360,12 +477,13 @@ function renderPlayoffs() {
 
 // Open Score Modal
 function openEditModal(matchId, isPlayoff = false) {
+  const tourney = getActiveOrSelectedTournament();
   let match;
   if (isPlayoff) {
     const playoffs = getOrInitializePlayoffMatches();
     match = playoffs.find(m => m.id === matchId);
   } else {
-    match = currentTournament.matches.find(m => m.id === matchId);
+    match = tourney.matches.find(m => m.id === matchId);
   }
 
   const body = document.getElementById("modal-edit-body");
@@ -392,6 +510,7 @@ function closeModal() {
 
 // Save Score to Firestore
 async function saveMatchScore(matchId, isPlayoff = false) {
+  const tourney = getActiveOrSelectedTournament();
   const p1B = parseInt(document.getElementById("inp-p1").value);
   const p2B = parseInt(document.getElementById("inp-p2").value);
 
@@ -404,29 +523,76 @@ async function saveMatchScore(matchId, isPlayoff = false) {
       return m;
     });
 
-    await db.collection("tournaments").doc(currentTournament.id).update({ playoffs: playoffs });
+    await db.collection("tournaments").doc(tourney.id).update({ playoffs: playoffs });
   } else {
-    const updatedMatches = currentTournament.matches.map(m => {
+    const updatedMatches = tourney.matches.map(m => {
       if (m.id === matchId) {
         return { ...m, p1Balls: p1B, p2Balls: p2B, completed: true };
       }
       return m;
     });
 
-    await db.collection("tournaments").doc(currentTournament.id).update({ matches: updatedMatches });
+    await db.collection("tournaments").doc(tourney.id).update({ matches: updatedMatches });
   }
 
   closeModal();
 }
 
-// Populate Head-to-Head Dropdowns
-function populateH2HSelects() {
-  const p1Sel = document.getElementById("h2h-p1");
-  const p2Sel = document.getElementById("h2h-p2");
-  if (!p1Sel || !p2Sel) return;
+// Get Finishing Position Points based on player count and rank
+function getFinishingPositionPoints(playerCount, rankIndex) {
+  // Rank index 0 = 1st, 1 = 2nd, etc.
+  if (playerCount === 6) {
+    const scale = [10, 6, 4, 3, 2, 1];
+    return scale[rankIndex] || 0;
+  } else if (playerCount === 5) {
+    const scale = [9, 5, 3, 2, 1];
+    return scale[rankIndex] || 0;
+  } else if (playerCount === 4) {
+    const scale = [7, 4, 2, 1];
+    return scale[rankIndex] || 0;
+  }
+  return 0;
+}
 
-  p1Sel.innerHTML = ALL_PLAYERS.map(p => `<option value="${p}">${p}</option>`).join('');
-  p2Sel.innerHTML = ALL_PLAYERS.map((p, i) => `<option value="${p}" ${i === 1 ? 'selected' : ''}>${p}</option>`).join('');
+// Calculate Final Ranks for a Tournament (incorporates playoffs)
+function calculateTournamentFinalRanks(t) {
+  const { players, matches, playoffs = [] } = t;
+  const stats = {};
+  players.forEach(p => stats[p] = { player: p, pts: 0, w: 0, ballsFor: 0, ballsAgainst: 0 });
+
+  // RR standings first
+  matches.filter(m => m.completed).forEach(m => {
+    const { p1Pts, p2Pts } = calculateMatchPoints(m.p1Balls, m.p2Balls);
+    stats[m.p1].pts += p1Pts; stats[m.p2].pts += p2Pts;
+    stats[m.p1].ballsFor += m.p1Balls; stats[m.p1].ballsAgainst += m.p2Balls;
+    stats[m.p2].ballsFor += m.p2Balls; stats[m.p2].ballsAgainst += m.p1Balls;
+    if (m.p1Balls > m.p2Balls) stats[m.p1].w++; else stats[m.p2].w++;
+  });
+
+  const rrSorted = Object.values(stats).sort((a, b) => {
+    if (b.pts !== a.pts) return b.pts - a.pts;
+    if (b.w !== a.w) return b.w - a.w;
+    return (b.ballsFor - b.ballsAgainst) - (a.ballsFor - a.ballsAgainst);
+  }).map(s => s.player);
+
+  const finalRanks = [...rrSorted]; // default to RR order
+
+  const fin = playoffs.find(m => m.id === 'final');
+  const p3rd = playoffs.find(m => m.id === 'p3rd');
+
+  if (fin && fin.completed && p3rd && p3rd.completed) {
+    const champion = fin.p1Balls > fin.p2Balls ? fin.p1 : fin.p2;
+    const runnerUp = fin.p1Balls > fin.p2Balls ? fin.p2 : fin.p1;
+    const third = p3rd.p1Balls > p3rd.p2Balls ? p3rd.p1 : p3rd.p2;
+    const fourth = p3rd.p1Balls > p3rd.p2Balls ? p3rd.p2 : p3rd.p1;
+
+    finalRanks[0] = champion;
+    finalRanks[1] = runnerUp;
+    finalRanks[2] = third;
+    finalRanks[3] = fourth;
+  }
+
+  return finalRanks;
 }
 
 // Render Championship Table
@@ -435,51 +601,104 @@ function renderChampionshipTable() {
   if (!container) return;
 
   const stats = {};
-  ALL_PLAYERS.forEach(p => stats[p] = { player: p, tournamentsPlayed: 0, totalPts: 0 });
+  ALL_PLAYERS.forEach(p => stats[p] = { 
+    player: p, 
+    played: 0, 
+    champPts: 0, 
+    totalGamePts: 0,
+    c: 0,   // Titles
+    ru: 0,  // Runner up
+    po: 0,  // Playoff appearances
+    w: 0, 
+    l: 0 
+  });
 
   allTournaments.forEach(t => {
     const allMatches = [...(t.matches || []), ...(t.playoffs || [])];
-    const playerPointsInTourney = {};
+    const playerGamePtsInTourney = {};
 
     allMatches.filter(m => m.completed).forEach(m => {
       const { p1Pts, p2Pts } = calculateMatchPoints(m.p1Balls, m.p2Balls);
-      playerPointsInTourney[m.p1] = (playerPointsInTourney[m.p1] || 0) + p1Pts;
-      playerPointsInTourney[m.p2] = (playerPointsInTourney[m.p2] || 0) + p2Pts;
+      playerGamePtsInTourney[m.p1] = (playerGamePtsInTourney[m.p1] || 0) + p1Pts;
+      playerGamePtsInTourney[m.p2] = (playerGamePtsInTourney[m.p2] || 0) + p2Pts;
+
+      if (stats[m.p1]) {
+        if (m.p1Balls > m.p2Balls) stats[m.p1].w++; else stats[m.p1].l++;
+      }
+      if (stats[m.p2]) {
+        if (m.p2Balls > m.p1Balls) stats[m.p2].w++; else stats[m.p2].l++;
+      }
     });
 
-    Object.keys(playerPointsInTourney).forEach(p => {
+    Object.keys(playerGamePtsInTourney).forEach(p => {
+      if (stats[p]) stats[p].totalGamePts += playerGamePtsInTourney[p];
+    });
+
+    // Playoff appearances check (max 1 count per tournament)
+    const playoffs = t.playoffs || [];
+    const playoffParticipants = new Set();
+    playoffs.forEach(m => {
+      if (m.p1) playoffParticipants.add(m.p1);
+      if (m.p2) playoffParticipants.add(m.p2);
+    });
+
+    playoffParticipants.forEach(p => {
+      if (stats[p]) stats[p].po++;
+    });
+
+    // Award finishing position points
+    const ranks = calculateTournamentFinalRanks(t);
+    ranks.forEach((p, rankIdx) => {
       if (stats[p]) {
-        stats[p].tournamentsPlayed++;
-        stats[p].totalPts += playerPointsInTourney[p];
+        stats[p].played++;
+        const finishPts = getFinishingPositionPoints(t.players.length, rankIdx);
+        stats[p].champPts += finishPts;
+
+        if (rankIdx === 0) stats[p].c++;
+        if (rankIdx === 1) stats[p].ru++;
       }
     });
   });
 
-  const sorted = Object.values(stats).sort((a, b) => b.totalPts - a.totalPts);
+  const sorted = Object.values(stats).sort((a, b) => b.champPts - a.champPts || b.totalGamePts - a.totalGamePts);
 
   container.innerHTML = `
     <div class="bg-slate-900 p-3 rounded-lg border border-slate-800">
-      <h3 class="text-xs font-bold text-amber-400 mb-2">Championship Standings</h3>
-      <table class="w-full text-xs text-left text-slate-300">
-        <thead>
-          <tr class="border-b border-slate-800 text-[10px] text-slate-400">
-            <th class="p-1.5">#</th>
-            <th class="p-1.5">Player</th>
-            <th class="p-1.5 text-center">Played</th>
-            <th class="p-1.5 text-right">Total Pts</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${sorted.map((r, i) => `
-            <tr class="border-b border-slate-800/40">
-              <td class="p-1.5 text-slate-400 font-mono">${i + 1}</td>
-              <td class="p-1.5 font-bold text-slate-200">${r.player}</td>
-              <td class="p-1.5 text-center">${r.tournamentsPlayed}</td>
-              <td class="p-1.5 text-right font-bold text-amber-400">${r.totalPts.toFixed(2)}</td>
+      <h3 class="text-xs font-bold text-amber-400 mb-2">Championship Overall Leaderboard</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs text-left text-slate-300 whitespace-nowrap">
+          <thead>
+            <tr class="border-b border-slate-800 text-[10px] text-slate-400">
+              <th class="p-1.5">#</th>
+              <th class="p-1.5">Player</th>
+              <th class="p-1.5 text-center">T.Played</th>
+              <th class="p-1.5 text-center text-amber-400 font-bold">Champ Pts</th>
+              <th class="p-1.5 text-center text-slate-400">Game Pts</th>
+              <th class="p-1.5 text-center text-emerald-400 font-bold">C</th>
+              <th class="p-1.5 text-center text-slate-300 font-bold">RU</th>
+              <th class="p-1.5 text-center text-amber-500 font-bold">PO</th>
+              <th class="p-1.5 text-center text-emerald-400">W</th>
+              <th class="p-1.5 text-center text-rose-400">L</th>
             </tr>
-          `).join('')}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            ${sorted.map((r, i) => `
+              <tr class="border-b border-slate-800/40">
+                <td class="p-1.5 text-slate-400 font-mono">${i + 1}</td>
+                <td class="p-1.5 font-bold text-slate-200">${r.player}</td>
+                <td class="p-1.5 text-center">${r.played}</td>
+                <td class="p-1.5 text-center font-bold text-amber-400">${r.champPts}</td>
+                <td class="p-1.5 text-center font-mono text-slate-400">${r.totalGamePts.toFixed(2)}</td>
+                <td class="p-1.5 text-center text-emerald-400 font-bold">${r.c}</td>
+                <td class="p-1.5 text-center text-slate-300 font-bold">${r.ru}</td>
+                <td class="p-1.5 text-center text-amber-500 font-bold">${r.po}</td>
+                <td class="p-1.5 text-center text-emerald-400">${r.w}</td>
+                <td class="p-1.5 text-center text-rose-400">${r.l}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
     </div>
   `;
 }
@@ -541,6 +760,16 @@ function renderCumulativeTable() {
       </table>
     </div>
   `;
+}
+
+// Populate Head-to-Head Dropdowns
+function populateH2HSelects() {
+  const p1Sel = document.getElementById("h2h-p1");
+  const p2Sel = document.getElementById("h2h-p2");
+  if (!p1Sel || !p2Sel) return;
+
+  p1Sel.innerHTML = ALL_PLAYERS.map(p => `<option value="${p}">${p}</option>`).join('');
+  p2Sel.innerHTML = ALL_PLAYERS.map((p, i) => `<option value="${p}" ${i === 1 ? 'selected' : ''}>${p}</option>`).join('');
 }
 
 // Render Head-to-Head Comparison
