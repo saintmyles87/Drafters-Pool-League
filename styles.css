@@ -1,0 +1,16 @@
+/* Custom Qualification Border Highlights */
+.border-qualify-semi {
+  border-bottom: 2px dashed #38bdf8 !important; /* Sky Blue Dashed for 6-Player Semis & 4-Player Finalists */
+}
+
+.border-qualify-direct-final {
+  border-bottom: 2px solid #22c55e !important; /* Solid Green for 5-Player 1st Place Direct to Final */
+}
+
+.border-qualify-playoff {
+  border-bottom: 2px dashed #38bdf8 !important; /* Sky Blue Dashed for 5-Player 2nd/3rd Playoff Spots */
+}
+
+.tab-btn {
+  transition: all 0.2s ease;
+}
