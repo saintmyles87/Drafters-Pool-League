@@ -12,7 +12,7 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
 // Global State
-const ALL_PLAYERS = ["Player 1", "Player 2", "Player 3", "Player 4", "Player 5", "Player 6"];
+const ALL_PLAYERS = ["Myles", "Danny", "James", "Mike", "Craig", "Franny"];
 let currentTournament = null;
 let allTournaments = [];
 
