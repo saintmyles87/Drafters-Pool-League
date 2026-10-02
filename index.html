@@ -21,11 +21,12 @@
       <h1 class="text-base font-black tracking-wider text-amber-400 uppercase">Drafters Pool League</h1>
     </div>
     <!-- Navigation Tabs -->
-    <nav class="max-w-xl mx-auto flex gap-1 mt-3 border-b border-slate-800 text-xs">
-      <button id="tab-tournament" onclick="switchTab('tournament')" class="tab-btn py-2 px-3 border-b-2 border-amber-400 text-amber-400 font-bold">Tournament</button>
-      <button id="tab-championship" onclick="switchTab('championship')" class="tab-btn py-2 px-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200">Championship</button>
-      <button id="tab-cumulative" onclick="switchTab('cumulative')" class="tab-btn py-2 px-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200">Cumulative</button>
-      <button id="tab-h2h" onclick="switchTab('h2h')" class="tab-btn py-2 px-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200">H2H</button>
+    <nav class="max-w-xl mx-auto flex gap-1 mt-3 border-b border-slate-800 text-xs overflow-x-auto">
+      <button id="tab-tournament" onclick="switchTab('tournament')" class="tab-btn py-2 px-3 border-b-2 border-amber-400 text-amber-400 font-bold whitespace-nowrap">Tournament</button>
+      <button id="tab-championship" onclick="switchTab('championship')" class="tab-btn py-2 px-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 whitespace-nowrap">Championship</button>
+      <button id="tab-cumulative" onclick="switchTab('cumulative')" class="tab-btn py-2 px-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 whitespace-nowrap">Cumulative</button>
+      <button id="tab-h2h" onclick="switchTab('h2h')" class="tab-btn py-2 px-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 whitespace-nowrap">H2H</button>
+      <button id="tab-rules" onclick="switchTab('rules')" class="tab-btn py-2 px-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 whitespace-nowrap">Rules</button>
     </nav>
   </header>
 
@@ -104,6 +105,33 @@
           </div>
         </div>
         <div id="h2h-result-card" class="space-y-2"></div>
+      </div>
+    </section>
+
+    <!-- 5. RULES TAB -->
+    <section id="sec-rules" class="tab-content hidden space-y-4">
+      <div class="bg-slate-900 p-4 rounded-lg border border-slate-800 space-y-3 text-xs text-slate-300 leading-relaxed">
+        <h2 class="text-sm font-bold text-amber-400">League Rules & Scoring</h2>
+
+        <div class="space-y-1">
+          <h3 class="font-bold text-slate-100">Round Robin Points System</h3>
+          <ul class="list-disc list-inside text-slate-400 space-y-0.5">
+            <li><strong>Win:</strong> 5 points base + (0.25 pts per ball potted)</li>
+            <li><strong>Loss:</strong> 0.25 pts per ball potted</li>
+            <li><strong>Shutout Bonus:</strong> +1 point if you win and leave opponent on 0 balls</li>
+            <li><strong>Loss on Black:</strong> +1 point if you lose while on the black ball (7 balls potted)</li>
+          </ul>
+        </div>
+
+        <div class="space-y-1 pt-2 border-t border-slate-800">
+          <h3 class="font-bold text-slate-100">Overall Championship Points</h3>
+          <p class="text-slate-400">Points awarded per tournament based on final overall position (post-playoffs):</p>
+          <ul class="list-disc list-inside text-slate-400 space-y-0.5">
+            <li><strong>6 Players:</strong> 1st: 10pts, 2nd: 6pts, 3rd: 4pts, 4th: 3pts, 5th: 2pts, 6th: 1pt</li>
+            <li><strong>5 Players:</strong> 1st: 9pts, 2nd: 5pts, 3rd: 3pts, 4th: 2pts, 5th: 1pt</li>
+            <li><strong>4 Players:</strong> 1st: 7pts, 2nd: 4pts, 3rd: 2pts, 4th: 1pt</li>
+          </ul>
+        </div>
       </div>
     </section>
 
